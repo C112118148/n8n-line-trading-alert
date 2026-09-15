@@ -78,7 +78,7 @@
 
 ```
 ├── workflows/
-│   └── crypto-macd-alert.json      # 抽離敏感 Token 後的 n8n Workflow 匯出檔
+│   └── MAX MACD 死叉警報 (BTC_ETH_DOGE_SHIB 30分K).json      # 抽離敏感 Token 後的 n8n Workflow 匯出檔
 ├── docs/
 │   ├── workflow-architecture.png   # n8n 畫布截圖
 │   └── line-alert-sample.png       # LINE Flex Message 警報手機截圖
