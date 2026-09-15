@@ -1,0 +1,225 @@
+{
+  "name": "MAX MACD 死叉警報 (BTC/ETH/DOGE/SHIB 5分K)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 30
+            }
+          ]
+        }
+      },
+      "id": "n_trigger",
+      "name": "每5分鐘",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 30
+      },
+      "id": "n_wait",
+      "name": "等待K線收線",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        304
+      ],
+      "webhookId": "2612cf3c-24d9-464d-9bd4-a627ea8698e3"
+    },
+    {
+      "parameters": {
+        "url": "https://max-api.maicoin.com/api/v2/k",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "market",
+              "value": "={{ $json.market }}"
+            },
+            {
+              "name": "period",
+              "value": "30"
+            },
+            {
+              "name": "limit",
+              "value": "200"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "n_http",
+      "name": "抓取MAX K線",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const FAST = 12, SLOW = 26, SIG = 9, PERIOD = 1800;\nconst EPS = 1e-9;\nconst FORCE_TEST_OUTPUT = false; // 設為 true 可輸出全部幣種檢查對應\n\nfunction ema(v, p) {\n  const k = 2 / (p + 1);\n  const r = Array(v.length).fill(null);\n  if (v.length < p) return r;\n  let s = 0;\n  for (let i = 0; i < p; i++) s += v[i];\n  r[p - 1] = s / p;\n  let prev = r[p - 1];\n  for (let i = p; i < v.length; i++) {\n    prev = v[i] * k + prev * (1 - k);\n    r[i] = prev;\n  }\n  return r;\n}\n\nfunction macd(closes) {\n  const ef = ema(closes, FAST);\n  const es = ema(closes, SLOW);\n  const n = closes.length;\n  const dif = Array(n).fill(null);\n  for (let i = 0; i < n; i++) {\n    if (ef[i] !== null && es[i] !== null) dif[i] = ef[i] - es[i];\n  }\n\n  const svals = dif.filter(x => x !== null);\n  const sig = Array(n).fill(null);\n  if (svals.length >= SIG) {\n    const esig = ema(svals, SIG);\n    let st = dif.findIndex(x => x !== null);\n    for (let j = 0; j < esig.length; j++) {\n      if (esig[j] !== null) sig[st + j] = esig[j];\n    }\n  }\n\n  const hist = Array(n).fill(null);\n  for (let i = 0; i < n; i++) {\n    if (dif[i] !== null && sig[i] !== null) hist[i] = dif[i] - sig[i];\n  }\n  return { dif, sig, hist };\n}\n\n// 1. 動態讀取設定節點的市場清單與數量\nlet marketList = ['btctwd', 'ethtwd', 'dogetwd', 'shibtwd'];\ntry {\n  // 自動適配可能叫 '設定市場清單' 或 'Code in JavaScript'\n  const setNode = $('設定市場清單').all().length > 0 ? $('設定市場清單') : $('Code in JavaScript');\n  marketList = setNode.all().map(i => String(i.json.market || '').toLowerCase());\n} catch (e) {}\n\nconst allItems = $input.all();\nconst totalItems = allItems.length;\nconst chunkSize = Math.floor(totalItems / marketList.length);\nconst out = [];\n\nconsole.log(`=== 開始驗證市場對應 (總筆數: ${totalItems}, 每組筆數: ${chunkSize}) ===`);\n\nfor (let mIdx = 0; mIdx < marketList.length; mIdx++) {\n  const market = marketList[mIdx].toUpperCase();\n  const startIdx = mIdx * chunkSize;\n  const endIdx = (mIdx + 1) * chunkSize;\n  const marketChunk = allItems.slice(startIdx, endIdx);\n\n  const klines = [];\n  for (const item of marketChunk) {\n    const raw = item.json;\n    if (Array.isArray(raw)) {\n      klines.push(raw);\n    } else if (typeof raw === 'object' && raw !== null) {\n      const row = Object.values(raw);\n      if (row.length >= 6) klines.push(row);\n    }\n  }\n\n  if (klines.length < SLOW + SIG) {\n    console.warn(`[${market}] K線數量不足 (${klines.length})`);\n    continue;\n  }\n\n  // 時間升序排列\n  klines.sort((a, b) => Number(a[0]) - Number(b[0]));\n\n// 修改為：直接取 API 回傳的最新一根完整收線 K 線\n  const lastClosedIdx = klines.length - 1;\n  const prevClosedIdx = lastClosedIdx - 1;\n  if (prevClosedIdx < 0) continue;\n\n  const closes = klines.map(k => Number(k[4]));\n  const latestPrice = closes[lastClosedIdx];\n  const { dif, sig, hist } = macd(closes);\n\n  const i = lastClosedIdx;\n  const p = prevClosedIdx;\n\n  if (hist[i] === null || hist[p] === null) continue;\n\n  const isDeathCross = (hist[p] >= -EPS) && (hist[i] < -EPS);\n\n  // 印出各幣種當前收盤價以利人工肉眼核對\n  console.log(`[驗證通過] 幣種: ${market} | 索引範圍: ${startIdx}~${endIdx-1} | 最新收盤價: ${latestPrice} TWD | 死叉: ${isDeathCross}`);\n\n  if (isDeathCross || FORCE_TEST_OUTPUT) {\n    out.push({\n      json: {\n        market: market,\n        close: latestPrice,\n        candle_ts: Number(klines[i][0]),\n        dif: Number(dif[i].toFixed(4)),\n        signal: Number(sig[i].toFixed(4)),\n        hist: Number(hist[i].toFixed(4)),\n        isDeathCross: isDeathCross,\n        audit_info: {\n          data_count: klines.length,\n          item_range: `${startIdx} - ${endIdx - 1}`\n        }\n      }\n    });\n  }\n}\n\nreturn out;"
+      },
+      "id": "n_macd",
+      "name": "MACD 計算與判定",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const m = String($json.market);\nconst c = Number($json.close);\nconst d = Number($json.dif);\nconst s = Number($json.signal);\nconst h = Number($json.hist);\nconst dt = new Date($json.candle_ts * 1000).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' });\n\nconst bubble = {\n  type: 'flex',\n  altText: '⚠️ ' + m + ' 30分K MACD 死叉警示',\n  contents: {\n    type: 'bubble',\n    size: 'kilo',\n    header: {\n      type: 'box',\n      layout: 'vertical',\n      backgroundColor: '#C0392B',\n      contents: [\n        { type: 'text', text: '⚠️ MACD 死叉警示', weight: 'bold', size: 'lg', color: '#FFFFFF' },\n        { type: 'text', text: m + ' 5分K', size: 'sm', color: '#FFE9E7' }\n      ]\n    },\n    body: {\n      type: 'box',\n      layout: 'vertical',\n      spacing: 'sm',\n      contents: [\n        { type: 'text', text: 'MACD 出現死叉且紅柱翻出', weight: 'bold', size: 'md', color: '#C0392B', wrap: true },\n        { type: 'separator', margin: 'md' },\n        { type: 'box', layout: 'baseline', spacing: 'sm', contents: [\n            { type: 'text', text: '收盤價', size: 'sm', color: '#555555', flex: 3 },\n            { type: 'text', text: c.toFixed(1) + ' TWD', size: 'sm', color: '#111111', flex: 5, weight: 'bold' }\n        ]},\n        { type: 'box', layout: 'baseline', spacing: 'sm', contents: [\n            { type: 'text', text: 'DIF (快線)', size: 'sm', color: '#555555', flex: 3 },\n            { type: 'text', text: d.toFixed(2), size: 'sm', color: '#111111', flex: 5 }\n        ]},\n        { type: 'box', layout: 'baseline', spacing: 'sm', contents: [\n            { type: 'text', text: 'Signal (慢線)', size: 'sm', color: '#555555', flex: 3 },\n            { type: 'text', text: s.toFixed(2), size: 'sm', color: '#111111', flex: 5 }\n        ]},\n        { type: 'box', layout: 'baseline', spacing: 'sm', contents: [\n            { type: 'text', text: 'Histogram', size: 'sm', color: '#555555', flex: 3 },\n            { type: 'text', text: h.toFixed(2), size: 'sm', color: '#C0392B', flex: 5, weight: 'bold' }\n        ]},\n        { type: 'box', layout: 'baseline', spacing: 'sm', contents: [\n            { type: 'text', text: '收線時間', size: 'sm', color: '#555555', flex: 3 },\n            { type: 'text', text: dt, size: 'sm', color: '#111111', flex: 5 }\n        ]},\n        { type: 'separator', margin: 'md' },\n        { type: 'text', text: '短線反彈動能衰竭，請留意回檔風險', size: 'xs', color: '#888888', wrap: true, margin: 'md' }\n      ]\n    }\n  }\n};\n\n// 重點：Run Once for Each Item 模式下，直接回傳帶有 json 屬性的物件即可\nreturn {\n  json: {\n    to: \"U3e1abe85ad173ed6c61740de6303c49d\",\n    messages: [bubble]\n  }\n};"
+      },
+      "id": "n_asm",
+      "name": "組裝LINE訊息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "to": "U3e1abe85ad173ed6c61740de6303c49d",
+        "messages": {
+          "values": [
+            {
+              "text": "={{ $json.messages[0].altText }}"
+            }
+          ]
+        }
+      },
+      "type": "@aotoki/n8n-nodes-line-messaging.lineMessaging",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        304
+      ],
+      "id": "b094bc79-c596-4943-97fa-a829c2331bf0",
+      "name": "Line Messaging",
+      "credentials": {
+        "lineMessagingApi": {
+          "id": "r3FNcMy60mnHQXtx",
+          "name": "Line Messaging account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  { json: { market: 'btctwd' } },\n  { json: { market: 'ethtwd' } },\n  { json: { market: 'dogetwd' } },\n  { json: { market: 'shibtwd' } }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        304
+      ],
+      "id": "7a4628c3-00af-464a-b02d-22b066bc03c0",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "每5分鐘": {
+      "main": [
+        [
+          {
+            "node": "等待K線收線",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "等待K線收線": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "抓取MAX K線": {
+      "main": [
+        [
+          {
+            "node": "MACD 計算與判定",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MACD 計算與判定": {
+      "main": [
+        [
+          {
+            "node": "組裝LINE訊息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "組裝LINE訊息": {
+      "main": [
+        [
+          {
+            "node": "Line Messaging",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "抓取MAX K線",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "26980fa8-5461-437e-bbc7-8d6846bc9fc0",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bab2600f67dcb1ab7d557b672f32f5b988eaffbdbefb116b5aa0758d88ce82cd"
+  },
+  "nodeGroups": [],
+  "id": "a68EGmpuXnINLAm8",
+  "tags": []
+}
