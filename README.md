@@ -1,9 +1,12 @@
-```markdown
-# Crypto MACD Sentinel (n8n 加密貨幣技術指標自動警報系統)
+# 🚀 Crypto MACD Sentinel
+> **基於 n8n 的全自動加密貨幣 MACD 死叉即時監控與 LINE 警報系統**
 
-本專案是一個基於 **n8n** 的事件驅動型加密貨幣監控管線。透過自動化排程定期從台灣 **MAX 交易所**（MaiCoin Group）抓取多幣種 K 線資料，利用純 JavaScript 打造的技術指標運算引擎計算指數平滑異同移動平均線（**MACD**），並在偵測到死叉訊號時，自動透過 **LINE Messaging API** 發送格式化的高質感 **Flex Message** 卡片。
+[![n8n](https://img.shields.io/badge/Orchestration-n8n-EA4B71?logo=n8n&logoColor=white)](https://n8n.io/)
+[![JavaScript](https://img.shields.io/badge/Algorithm-ES6%2B-F7DF1E?logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
+[![LINE](https://img.shields.io/badge/Alert-LINE%20Flex%20Message-00C300?logo=line&logoColor=white)](https://developers.line.biz/)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-```
+本專案是一個輕量、低延遲的事件驅動型量化監控工作流。系統定期向台灣 **MAX 交易所** 公開 API 批次取得多幣種 K 線資料，透過手刻的原生 JavaScript 引擎即時計算 EMA 與 MACD 雙軸向量，並在確認收線出現技術面「死叉（Death Cross）」時，自動組裝推播結構化的 **LINE Flex Message** 警報卡片。
 
 ---
 
@@ -30,8 +33,8 @@
 ## 🏗️ 系統架構流程
 
 ```text
-[ 排程觸發 (Cron) ] ──> [ 緩衝等待 (Wait) ] ──> [ 市場清單生成 ]
-                                                     │
+[ 排程觸發 (Cron) ]        ──>     [ 緩衝等待 (Wait) ]       ──>       [ 市場清單生成 ]
+                                                                           │
 [ LINE 推播 API ] <── [ Flex 訊息組裝 ] <── [ MACD 指標分析引擎 ] <── [ MAX 公開 REST API ]
 
 ```
@@ -136,5 +139,5 @@ cp .env.example .env
 
 本專案僅供技術研究、教育與個人自動化專案展示用途。工作流所產生的任何指標與通知均不構成任何投資建議或買賣指示，實際交易請自行評估風險。
 
-```
+
 
